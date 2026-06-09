@@ -14,10 +14,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Zakat Tracker — Hitung & Lacak Zakat Maal",
+  title: "Zakat Tracker Emas — Hitung & Lacak Zakat Maal",
   description:
-    "Hitung dan lacak zakat maal (emas, perak, uang) dengan perhitungan nishab dan haul. by lalalumputan™",
+    "Catat beli & jual emas, akumulasi otomatis, hitung nishab & haul zakat maal. by lalalumputan™",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

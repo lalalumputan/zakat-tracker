@@ -9,7 +9,9 @@ import {
   NISHAB_EMAS_GRAM,
   HAUL_HARI,
   type InputHarta,
-  type Pembelian,
+  type Transaksi,
+  type JenisTransaksi,
+  type PembayaranZakat,
 } from "@/lib/zakat";
 import { muatInput, simpanInput, inputKosong, idBaru } from "@/lib/storage";
 
@@ -32,27 +34,54 @@ export default function Home() {
     setInput((prev) => ({ ...prev, hargaEmasSekarang: v }));
   }
 
-  function tambahPembelian() {
-    const baru: Pembelian = {
+  function tambahTransaksi(jenis: JenisTransaksi) {
+    const baru: Transaksi = {
       id: idBaru(),
+      jenis,
       tanggal: "",
       gram: 0,
-      hargaBeliPerGram: input.hargaEmasSekarang || 0,
+      hargaPerGram: input.hargaEmasSekarang || 0,
     };
-    setInput((prev) => ({ ...prev, pembelian: [...prev.pembelian, baru] }));
+    setInput((prev) => ({ ...prev, transaksi: [...prev.transaksi, baru] }));
   }
 
-  function ubahPembelian(id: string, patch: Partial<Pembelian>) {
+  function ubahTransaksi(id: string, patch: Partial<Transaksi>) {
     setInput((prev) => ({
       ...prev,
-      pembelian: prev.pembelian.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      transaksi: prev.transaksi.map((t) => (t.id === id ? { ...t, ...patch } : t)),
     }));
   }
 
-  function hapusPembelian(id: string) {
+  function hapusTransaksi(id: string) {
     setInput((prev) => ({
       ...prev,
-      pembelian: prev.pembelian.filter((p) => p.id !== id),
+      transaksi: prev.transaksi.filter((t) => t.id !== id),
+    }));
+  }
+
+  function tandaiSudahBayar() {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const bayar: PembayaranZakat = {
+      id: idBaru(),
+      tanggal: iso,
+      jumlah: Math.round(hasil.jumlahZakat),
+      catatan: "",
+    };
+    setInput((prev) => ({ ...prev, riwayat: [...prev.riwayat, bayar] }));
+  }
+
+  function ubahRiwayat(id: string, patch: Partial<PembayaranZakat>) {
+    setInput((prev) => ({
+      ...prev,
+      riwayat: prev.riwayat.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }));
+  }
+
+  function hapusRiwayat(id: string) {
+    setInput((prev) => ({
+      ...prev,
+      riwayat: prev.riwayat.filter((r) => r.id !== id),
     }));
   }
 
@@ -71,7 +100,7 @@ export default function Home() {
             Zakat Tracker Emas
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Catat pembelian emas bertahap, akumulasi otomatis ·{" "}
+            Catat beli & jual emas, akumulasi otomatis ·{" "}
             <span className="text-emerald-700">lalalumputan™</span>
           </p>
         </header>
@@ -86,34 +115,50 @@ export default function Home() {
           />
         </Kartu>
 
-        {/* Daftar pembelian */}
-        <Kartu judul="Daftar Pembelian Emas" ikon="🪙">
-          {input.pembelian.length === 0 ? (
+        {/* Transaksi */}
+        <Kartu judul="Transaksi Emas" ikon="🪙">
+          {input.transaksi.length === 0 ? (
             <p className="mb-4 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
-              Belum ada pembelian. Tambahkan pembelian emas pertamamu.
+              Belum ada transaksi. Tambahkan pembelian emas pertamamu.
             </p>
           ) : (
             <div className="mb-4 space-y-3">
               {hasil.rincian.map((r) => (
-                <BarisPembelian
+                <BarisTransaksi
                   key={r.id}
                   rincian={r}
-                  onChange={(patch) => ubahPembelian(r.id, patch)}
-                  onHapus={() => hapusPembelian(r.id)}
+                  onChange={(patch) => ubahTransaksi(r.id, patch)}
+                  onHapus={() => hapusTransaksi(r.id)}
                 />
               ))}
             </div>
           )}
-          <button
-            onClick={tambahPembelian}
-            className="w-full rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 py-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50"
-          >
-            + Tambah Pembelian
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => tambahTransaksi("beli")}
+              className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 py-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50"
+            >
+              + Beli emas
+            </button>
+            <button
+              onClick={() => tambahTransaksi("jual")}
+              className="rounded-xl border border-dashed border-rose-300 bg-rose-50/50 py-3 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+            >
+              − Jual emas
+            </button>
+          </div>
         </Kartu>
 
         {/* Hasil */}
-        <HasilZakatCard hasil={hasil} />
+        <HasilZakatCard hasil={hasil} onBayar={tandaiSudahBayar} />
+
+        {/* Riwayat pembayaran */}
+        <RiwayatZakat
+          riwayat={input.riwayat}
+          totalDibayar={hasil.totalDibayar}
+          onUbah={ubahRiwayat}
+          onHapus={hapusRiwayat}
+        />
 
         <div className="mt-6 flex justify-center">
           <button
@@ -130,8 +175,8 @@ export default function Home() {
             {HAUL_HARI} hari (1 tahun hijriah).
           </p>
           <p>
-            Haul dihitung sejak total emas pertama kali mencapai nishab; pembelian
-            berikutnya mengikuti haul harta pokok.
+            Haul dihitung sejak total emas mencapai nishab; bila total turun di bawah
+            nishab (mis. dijual), haul terputus dan dihitung ulang.
           </p>
           <p>
             Aplikasi ini alat bantu hitung. Untuk kepastian, rujuk ulama / lembaga
@@ -143,27 +188,41 @@ export default function Home() {
   );
 }
 
-/* ---------- Baris pembelian ---------- */
+/* ---------- Baris transaksi ---------- */
 
-function BarisPembelian({
+function BarisTransaksi({
   rincian,
   onChange,
   onHapus,
 }: {
   rincian: ReturnType<typeof hitungZakat>["rincian"][number];
-  onChange: (patch: Partial<Pembelian>) => void;
+  onChange: (patch: Partial<Transaksi>) => void;
   onHapus: () => void;
 }) {
+  const jual = rincian.jenis === "jual";
   return (
     <div
       className={`rounded-2xl border p-3 ${
         rincian.pencetusNishab
           ? "border-emerald-300 bg-emerald-50/60"
-          : "border-slate-200 bg-white"
+          : jual
+            ? "border-rose-100 bg-rose-50/30"
+            : "border-slate-200 bg-white"
       }`}
     >
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          onClick={() => onChange({ jenis: jual ? "beli" : "jual" })}
+          className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+            jual ? "bg-rose-100 text-rose-600" : "bg-emerald-100 text-emerald-700"
+          }`}
+        >
+          {jual ? "− Jual" : "+ Beli"}
+        </button>
+        <span className="text-[11px] text-slate-400">ketuk untuk ubah jenis</span>
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1.3fr_0.8fr_1.2fr_auto]">
-        <Mini label="Tanggal beli">
+        <Mini label="Tanggal">
           <input
             type="date"
             value={rincian.tanggal}
@@ -182,15 +241,15 @@ function BarisPembelian({
             className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
           />
         </Mini>
-        <Mini label="Harga beli/gram">
+        <Mini label={jual ? "Harga jual/gram" : "Harga beli/gram"}>
           <div className="flex items-center rounded-lg border border-slate-200 bg-white focus-within:border-emerald-400">
             <span className="pl-2 text-xs text-slate-400">Rp</span>
             <input
               inputMode="numeric"
-              value={rincian.hargaBeliPerGram > 0 ? rincian.hargaBeliPerGram.toLocaleString("id-ID") : ""}
+              value={rincian.hargaPerGram > 0 ? rincian.hargaPerGram.toLocaleString("id-ID") : ""}
               onChange={(e) =>
                 onChange({
-                  hargaBeliPerGram: parseInt(e.target.value.replace(/[^\d]/g, ""), 10) || 0,
+                  hargaPerGram: parseInt(e.target.value.replace(/[^\d]/g, ""), 10) || 0,
                 })
               }
               placeholder="0"
@@ -201,7 +260,7 @@ function BarisPembelian({
         <div className="flex items-end justify-end">
           <button
             onClick={onHapus}
-            aria-label="Hapus pembelian"
+            aria-label="Hapus transaksi"
             className="rounded-lg px-2 py-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
           >
             ✕
@@ -210,12 +269,13 @@ function BarisPembelian({
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
         <span>
-          Kumulatif: <strong className="text-slate-600">{formatGram(rincian.kumulatifGram)}</strong>
+          Total setelah ini:{" "}
+          <strong className="text-slate-600">{formatGram(rincian.kumulatifGram)}</strong>
         </span>
-        {rincian.nilaiBeli > 0 && <span>Modal: {formatRupiah(rincian.nilaiBeli)}</span>}
+        {rincian.nilai > 0 && <span>Nilai: {formatRupiah(rincian.nilai)}</span>}
         {rincian.pencetusNishab && (
           <span className="rounded-full bg-emerald-600 px-2 py-0.5 font-medium text-white">
-            ✓ Nishab tercapai di sini
+            ✓ Nishab tercapai di sini (haul mulai)
           </span>
         )}
       </div>
@@ -234,7 +294,13 @@ function Mini({ label, children }: { label: string; children: React.ReactNode })
 
 /* ---------- Kartu hasil ---------- */
 
-function HasilZakatCard({ hasil }: { hasil: ReturnType<typeof hitungZakat> }) {
+function HasilZakatCard({
+  hasil,
+  onBayar,
+}: {
+  hasil: ReturnType<typeof hitungZakat>;
+  onBayar: () => void;
+}) {
   const { wajibZakat, mencapaiNishab } = hasil;
 
   const status = wajibZakat
@@ -265,12 +331,17 @@ function HasilZakatCard({ hasil }: { hasil: ReturnType<typeof hitungZakat> }) {
           <div className="mt-3 rounded-2xl bg-white/15 px-4 py-3">
             <div className="text-xs opacity-90">Zakat yang harus dibayar (2,5%)</div>
             <div className="text-3xl font-extrabold">{formatRupiah(hasil.jumlahZakat)}</div>
+            <button
+              onClick={onBayar}
+              className="mt-3 w-full rounded-xl bg-white py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              ✓ Tandai sudah bayar
+            </button>
           </div>
         )}
       </div>
 
       <div className="space-y-3 px-6 py-5">
-        {/* Akumulasi gram */}
         <div className="flex items-end justify-between">
           <span className="text-sm text-slate-500">Total emas dimiliki</span>
           <span className="text-xl font-bold text-emerald-700">
@@ -300,21 +371,20 @@ function HasilZakatCard({ hasil }: { hasil: ReturnType<typeof hitungZakat> }) {
 
         <div className="my-2 border-t border-dashed border-slate-200" />
 
-        <Baris label="Modal (total harga beli)" value={formatRupiah(hasil.totalModalEmas)} />
+        <Baris label="Modal bersih (beli − jual)" value={formatRupiah(hasil.modalBersih)} />
         <Baris label="Nilai sekarang" value={formatRupiah(hasil.nilaiEmas)} tebal />
-        {hasil.totalModalEmas > 0 && (
+        {Math.abs(hasil.modalBersih) > 0 && (
           <Baris
             label={hasil.keuntungan >= 0 ? "Keuntungan" : "Kerugian"}
             value={`${hasil.keuntungan >= 0 ? "+" : "−"} ${formatRupiah(Math.abs(hasil.keuntungan))}`}
           />
         )}
 
-        {/* Status haul */}
         <div className="mt-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm">
           {!hasil.tanggalNishabTercapai ? (
             <p className="text-slate-500">
               📅 Haul mulai berjalan saat total emas mencapai {NISHAB_EMAS_GRAM} gram.
-              {hasil.mencapaiNishab && " Lengkapi tanggal pembelian untuk melacak haul."}
+              {hasil.mencapaiNishab && " Lengkapi tanggal transaksi untuk melacak haul."}
             </p>
           ) : (
             <>
@@ -353,6 +423,68 @@ function Baris({ label, value, tebal }: { label: string; value: string; tebal?: 
       <span className={tebal ? "font-semibold text-slate-700" : "text-slate-500"}>{label}</span>
       <span className={tebal ? "font-bold text-emerald-700" : "text-slate-700"}>{value}</span>
     </div>
+  );
+}
+
+/* ---------- Riwayat pembayaran zakat ---------- */
+
+function RiwayatZakat({
+  riwayat,
+  totalDibayar,
+  onUbah,
+  onHapus,
+}: {
+  riwayat: PembayaranZakat[];
+  totalDibayar: number;
+  onUbah: (id: string, patch: Partial<PembayaranZakat>) => void;
+  onHapus: (id: string) => void;
+}) {
+  const urut = [...riwayat].sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+  return (
+    <section className="mt-5 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="mb-4 flex items-center justify-between text-sm font-semibold text-slate-700">
+        <span className="flex items-center gap-2">📒 Riwayat Pembayaran Zakat</span>
+        {totalDibayar > 0 && (
+          <span className="text-xs font-normal text-slate-400">
+            Total: <strong className="text-emerald-700">{formatRupiah(totalDibayar)}</strong>
+          </span>
+        )}
+      </h2>
+      {urut.length === 0 ? (
+        <p className="rounded-xl bg-slate-50 px-4 py-5 text-center text-sm text-slate-400">
+          Belum ada catatan pembayaran. Gunakan tombol &quot;Tandai sudah bayar&quot; saat zakat
+          jatuh tempo.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {urut.map((r) => (
+            <li
+              key={r.id}
+              className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 px-3 py-2.5"
+            >
+              <span className="text-lg">💸</span>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-700">{formatRupiah(r.jumlah)}</div>
+                <div className="text-xs text-slate-400">{formatTanggalID(r.tanggal)}</div>
+                <input
+                  value={r.catatan ?? ""}
+                  onChange={(e) => onUbah(r.id, { catatan: e.target.value })}
+                  placeholder="+ catatan (mis. via BAZNAS)"
+                  className="mt-1 w-full bg-transparent text-xs text-slate-500 outline-none placeholder:text-slate-300"
+                />
+              </div>
+              <button
+                onClick={() => onHapus(r.id)}
+                aria-label="Hapus catatan"
+                className="rounded-lg px-2 py-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

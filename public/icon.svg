@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="112" fill="#059669"/>
-  <text x="50%" y="50%" font-size="300" text-anchor="middle" dominant-baseline="central" fill="#ffffff">☪</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#059669"/>
+  <!-- bulan sabit: lingkaran putih dikurangi lingkaran warna bg -->
+  <circle cx="244" cy="256" r="132" fill="#ffffff"/>
+  <circle cx="292" cy="232" r="118" fill="#059669"/>
+  <!-- bintang lima sudut -->
+  <path fill="#ffffff" d="M348 196 l16 33 36 5 -26 26 6 36 -32 -17 -32 17 6 -36 -26 -26 36 -5 z"/>
 </svg>
