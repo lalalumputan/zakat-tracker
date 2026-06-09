@@ -1,0 +1,18 @@
+{
+  "name": "Zakat Tracker — Zakat Maal",
+  "short_name": "Zakat Tracker",
+  "description": "Hitung & lacak zakat maal: emas, perak, uang. Perhitungan nishab & haul.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ecfdf5",
+  "theme_color": "#059669",
+  "lang": "id",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
