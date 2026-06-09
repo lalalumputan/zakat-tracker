@@ -1,7 +1,7 @@
-import type { InputHarta, Transaksi } from "./zakat";
+import type { InputHarta, PembayaranZakat, Transaksi } from "./zakat";
 
-const KEY = "zakat-tracker-v3";
-const KEY_LAMA = "zakat-tracker-v2";
+const KEY = "zakat-tracker-v4";
+const KEY_V3 = "zakat-tracker-v3";
 
 export const inputKosong: InputHarta = {
   hargaEmasSekarang: 0,
@@ -9,31 +9,33 @@ export const inputKosong: InputHarta = {
   riwayat: [],
 };
 
-interface DataV2 {
+interface RiwayatV3 {
+  id: string;
+  tanggal: string;
+  jumlah: number;
+  catatan?: string;
+}
+interface DataV3 {
   hargaEmasSekarang?: number;
-  pembelian?: Array<{
-    id: string;
-    tanggal: string;
-    gram: number;
-    hargaBeliPerGram: number;
-  }>;
+  transaksi?: Transaksi[];
+  riwayat?: RiwayatV3[];
 }
 
-/** Migrasi data v2 (hanya pembelian) → v3 (transaksi beli/jual + riwayat). */
-function migrasiV2(raw: string): InputHarta | null {
+function migrasiV3(raw: string): InputHarta | null {
   try {
-    const v2 = JSON.parse(raw) as DataV2;
-    const transaksi: Transaksi[] = (v2.pembelian ?? []).map((p) => ({
-      id: p.id,
-      jenis: "beli",
-      tanggal: p.tanggal,
-      gram: p.gram,
-      hargaPerGram: p.hargaBeliPerGram,
+    const v3 = JSON.parse(raw) as DataV3;
+    const riwayat: PembayaranZakat[] = (v3.riwayat ?? []).map((r) => ({
+      id: r.id,
+      tanggal: r.tanggal,
+      gramZakat: 0,
+      metode: "tunai",
+      jumlah: r.jumlah ?? 0,
+      catatan: r.catatan,
     }));
     return {
-      hargaEmasSekarang: v2.hargaEmasSekarang ?? 0,
-      transaksi,
-      riwayat: [],
+      hargaEmasSekarang: v3.hargaEmasSekarang ?? 0,
+      transaksi: Array.isArray(v3.transaksi) ? v3.transaksi : [],
+      riwayat,
     };
   } catch {
     return null;
@@ -52,10 +54,9 @@ export function muatInput(): InputHarta {
         riwayat: Array.isArray(parsed.riwayat) ? parsed.riwayat : [],
       };
     }
-    // Coba migrasi dari v2
-    const rawLama = window.localStorage.getItem(KEY_LAMA);
-    if (rawLama) {
-      const migrasi = migrasiV2(rawLama);
+    const rawV3 = window.localStorage.getItem(KEY_V3);
+    if (rawV3) {
+      const migrasi = migrasiV3(rawV3);
       if (migrasi) {
         simpanInput(migrasi);
         return migrasi;
@@ -72,7 +73,7 @@ export function simpanInput(input: InputHarta): void {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(input));
   } catch {
-    // abaikan (mis. storage penuh / mode privat)
+    // abaikan
   }
 }
 

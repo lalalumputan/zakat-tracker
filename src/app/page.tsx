@@ -11,9 +11,15 @@ import {
   type InputHarta,
   type Transaksi,
   type JenisTransaksi,
+  type MetodeBayar,
   type PembayaranZakat,
 } from "@/lib/zakat";
 import { muatInput, simpanInput, inputKosong, idBaru } from "@/lib/storage";
+
+function isoHariIni() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function Home() {
   const [input, setInput] = useState<InputHarta>(inputKosong);
@@ -60,12 +66,12 @@ export default function Home() {
   }
 
   function tandaiSudahBayar() {
-    const today = new Date();
-    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     const bayar: PembayaranZakat = {
       id: idBaru(),
-      tanggal: iso,
-      jumlah: Math.round(hasil.jumlahZakat),
+      tanggal: isoHariIni(),
+      gramZakat: Number(hasil.totalZakatGram.toFixed(4)),
+      metode: "tunai",
+      jumlah: Math.round(hasil.estimasiZakatRupiah),
       catatan: "",
     };
     setInput((prev) => ({ ...prev, riwayat: [...prev.riwayat, bayar] }));
@@ -100,18 +106,17 @@ export default function Home() {
             Zakat Tracker Emas
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Catat beli & jual emas, akumulasi otomatis ·{" "}
+            Haul per lot · zakat dalam gram ·{" "}
             <span className="text-emerald-700">lalalumputan™</span>
           </p>
         </header>
 
-        {/* Harga sekarang */}
         <Kartu judul="Harga Emas Saat Ini" ikon="🏷️">
           <FieldRupiah
-            label="Harga emas / gram (untuk hitung nilai & zakat)"
+            label="Harga emas / gram"
             value={input.hargaEmasSekarang}
             onChange={setHarga}
-            hint="Input manual. Dipakai untuk valuasi total & jumlah zakat."
+            hint="Untuk valuasi & konversi default zakat ke Rupiah."
           />
         </Kartu>
 
@@ -123,7 +128,7 @@ export default function Home() {
             </p>
           ) : (
             <div className="mb-4 space-y-3">
-              {hasil.rincian.map((r) => (
+              {hasil.rincianTransaksi.map((r) => (
                 <BarisTransaksi
                   key={r.id}
                   rincian={r}
@@ -149,13 +154,29 @@ export default function Home() {
           </div>
         </Kartu>
 
-        {/* Hasil */}
-        <HasilZakatCard hasil={hasil} onBayar={tandaiSudahBayar} />
+        {/* Ringkasan */}
+        <RingkasanZakat hasil={hasil} onBayar={tandaiSudahBayar} />
 
-        {/* Riwayat pembayaran */}
+        {/* Haul per lot */}
+        {hasil.lots.length > 0 && (
+          <Kartu judul="Status Haul per Lot" ikon="⏱️">
+            <div className="space-y-3">
+              {hasil.lots.map((lot) => (
+                <LotCard
+                  key={lot.id}
+                  lot={lot}
+                  onUbahHargaHaul={(v) => ubahTransaksi(lot.id, { hargaSaatHaul: v })}
+                />
+              ))}
+            </div>
+          </Kartu>
+        )}
+
+        {/* Riwayat */}
         <RiwayatZakat
           riwayat={input.riwayat}
-          totalDibayar={hasil.totalDibayar}
+          totalDibayarGram={hasil.totalDibayarGram}
+          totalDibayarRupiah={hasil.totalDibayarRupiah}
           onUbah={ubahRiwayat}
           onHapus={hapusRiwayat}
         />
@@ -171,17 +192,15 @@ export default function Home() {
 
         <footer className="mt-8 space-y-1 text-center text-[11px] leading-relaxed text-slate-400">
           <p>
-            Nishab emas = {NISHAB_EMAS_GRAM} gram · Kadar zakat = 2,5% · Haul ={" "}
-            {HAUL_HARI} hari (1 tahun hijriah).
+            Nishab {NISHAB_EMAS_GRAM} gram · zakat 2,5% dihitung dari berat emas (gram) ·
+            haul {HAUL_HARI} hari per lot.
           </p>
           <p>
-            Haul dihitung sejak total emas mencapai nishab; bila total turun di bawah
-            nishab (mis. dijual), haul terputus dan dihitung ulang.
+            Haul tiap lot mulai dari max(tanggal beli, tanggal nishab tercapai). Penjualan
+            mengurangi lot terlama (FIFO). Bayar tunai dikonversi dengan harga emas saat haul;
+            bayar dengan jual emas memakai hasil penjualan berat zakat.
           </p>
-          <p>
-            Aplikasi ini alat bantu hitung. Untuk kepastian, rujuk ulama / lembaga
-            amil zakat resmi.
-          </p>
+          <p>Alat bantu hitung. Untuk kepastian, rujuk ulama / lembaga amil zakat resmi.</p>
         </footer>
       </div>
     </main>
@@ -195,7 +214,7 @@ function BarisTransaksi({
   onChange,
   onHapus,
 }: {
-  rincian: ReturnType<typeof hitungZakat>["rincian"][number];
+  rincian: ReturnType<typeof hitungZakat>["rincianTransaksi"][number];
   onChange: (patch: Partial<Transaksi>) => void;
   onHapus: () => void;
 }) {
@@ -203,11 +222,7 @@ function BarisTransaksi({
   return (
     <div
       className={`rounded-2xl border p-3 ${
-        rincian.pencetusNishab
-          ? "border-emerald-300 bg-emerald-50/60"
-          : jual
-            ? "border-rose-100 bg-rose-50/30"
-            : "border-slate-200 bg-white"
+        jual ? "border-rose-100 bg-rose-50/30" : "border-slate-200 bg-white"
       }`}
     >
       <div className="mb-2 flex items-center gap-2">
@@ -242,20 +257,10 @@ function BarisTransaksi({
           />
         </Mini>
         <Mini label={jual ? "Harga jual/gram" : "Harga beli/gram"}>
-          <div className="flex items-center rounded-lg border border-slate-200 bg-white focus-within:border-emerald-400">
-            <span className="pl-2 text-xs text-slate-400">Rp</span>
-            <input
-              inputMode="numeric"
-              value={rincian.hargaPerGram > 0 ? rincian.hargaPerGram.toLocaleString("id-ID") : ""}
-              onChange={(e) =>
-                onChange({
-                  hargaPerGram: parseInt(e.target.value.replace(/[^\d]/g, ""), 10) || 0,
-                })
-              }
-              placeholder="0"
-              className="w-full bg-transparent px-1.5 py-1.5 text-sm outline-none"
-            />
-          </div>
+          <FieldRupiahKecil
+            value={rincian.hargaPerGram}
+            onChange={(v) => onChange({ hargaPerGram: v })}
+          />
         </Mini>
         <div className="flex items-end justify-end">
           <button
@@ -267,55 +272,119 @@ function BarisTransaksi({
           </button>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-        <span>
-          Total setelah ini:{" "}
-          <strong className="text-slate-600">{formatGram(rincian.kumulatifGram)}</strong>
-        </span>
-        {rincian.nilai > 0 && <span>Nilai: {formatRupiah(rincian.nilai)}</span>}
-        {rincian.pencetusNishab && (
-          <span className="rounded-full bg-emerald-600 px-2 py-0.5 font-medium text-white">
-            ✓ Nishab tercapai di sini (haul mulai)
+      <div className="mt-2 text-xs text-slate-400">
+        Total setelah ini:{" "}
+        <strong className="text-slate-600">{formatGram(rincian.kumulatifGram)}</strong>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Lot / haul ---------- */
+
+function LotCard({
+  lot,
+  onUbahHargaHaul,
+}: {
+  lot: ReturnType<typeof hitungZakat>["lots"][number];
+  onUbahHargaHaul: (v: number) => void;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        lot.haulGenap ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white"
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-semibold text-slate-700">
+            {formatGram(lot.gramSisa)}
+            {lot.gramSisa !== lot.gramAwal && (
+              <span className="ml-1 text-xs font-normal text-slate-400">
+                (dari {formatGram(lot.gramAwal)})
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-slate-400">
+            Beli {formatTanggalID(lot.tanggalBeli)} · {formatRupiah(lot.hargaBeli)}/g
+          </div>
+        </div>
+        {lot.haulGenap && (
+          <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-medium text-white">
+            Haul genap
           </span>
+        )}
+      </div>
+
+      <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+        {!lot.haulMulai ? (
+          <p className="text-slate-500">Belum mencapai nishab — haul belum berjalan.</p>
+        ) : lot.haulGenap ? (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-400">
+              Haul mulai {formatTanggalID(lot.haulMulai)} · genap{" "}
+              {formatTanggalID(lot.haulJatuhTempo)}
+            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-600">Zakat lot ini (2,5%)</span>
+              <span className="font-bold text-emerald-700">{formatGram(lot.zakatGram, 3)}</span>
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-slate-400">
+                Harga emas saat haul jatuh tempo (untuk bayar tunai)
+              </span>
+              <FieldRupiahKecil
+                value={lot.hargaSaatHaul ?? 0}
+                onChange={onUbahHargaHaul}
+                placeholder="pakai harga terkini"
+              />
+            </label>
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>≈ nilai zakat</span>
+              <span className="font-semibold text-emerald-700">
+                {formatRupiah(lot.zakatRupiah)}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-slate-600">
+            <div className="flex items-center justify-between">
+              <span>Sisa haul</span>
+              <span className="font-semibold text-emerald-700">{lot.sisaHariHaul} hari</span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Mulai {formatTanggalID(lot.haulMulai)} · genap{" "}
+              {formatTanggalID(lot.haulJatuhTempo)} ({lot.hariBerlalu}/{HAUL_HARI} hari)
+            </p>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function Mini({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-slate-400">{label}</span>
-      {children}
-    </label>
-  );
-}
+/* ---------- Ringkasan ---------- */
 
-/* ---------- Kartu hasil ---------- */
-
-function HasilZakatCard({
+function RingkasanZakat({
   hasil,
   onBayar,
 }: {
   hasil: ReturnType<typeof hitungZakat>;
   onBayar: () => void;
 }) {
-  const { wajibZakat, mencapaiNishab } = hasil;
-
-  const status = wajibZakat
-    ? { label: "Wajib Zakat", emoji: "✅" }
+  const { adaYangJatuhTempo, mencapaiNishab } = hasil;
+  const status = adaYangJatuhTempo
+    ? { label: "Ada Zakat Jatuh Tempo", emoji: "✅" }
     : mencapaiNishab
       ? { label: "Menunggu Haul", emoji: "⏳" }
       : { label: "Belum Mencapai Nishab", emoji: "ℹ️" };
-
   const persen = Math.min(100, (hasil.totalGramEmas / NISHAB_EMAS_GRAM) * 100);
 
   return (
     <div className="mt-6 overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-xl shadow-emerald-100/50">
       <div
         className={`px-6 py-5 ${
-          wajibZakat
+          adaYangJatuhTempo
             ? "bg-emerald-600 text-white"
             : mencapaiNishab
               ? "bg-amber-400 text-amber-950"
@@ -327,10 +396,15 @@ function HasilZakatCard({
           <span className="text-sm">{status.emoji}</span>
         </div>
         <div className="mt-1 text-2xl font-bold">{status.label}</div>
-        {wajibZakat && (
+        {adaYangJatuhTempo && (
           <div className="mt-3 rounded-2xl bg-white/15 px-4 py-3">
-            <div className="text-xs opacity-90">Zakat yang harus dibayar (2,5%)</div>
-            <div className="text-3xl font-extrabold">{formatRupiah(hasil.jumlahZakat)}</div>
+            <div className="text-xs opacity-90">Zakat yang harus dikeluarkan</div>
+            <div className="text-3xl font-extrabold">
+              {formatGram(hasil.totalZakatGram, 3)}
+            </div>
+            <div className="mt-0.5 text-sm opacity-90">
+              ≈ {formatRupiah(hasil.estimasiZakatRupiah)}
+            </div>
             <button
               onClick={onBayar}
               className="mt-3 w-full rounded-xl bg-white py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
@@ -362,56 +436,21 @@ function HasilZakatCard({
             <span>Nishab {NISHAB_EMAS_GRAM} gram</span>
           </p>
         </div>
-
         {!mencapaiNishab && hasil.totalGramEmas > 0 && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            Kurang <strong>{formatGram(hasil.kekuranganGram)}</strong> lagi untuk mencapai nishab.
+            Kurang <strong>{formatGram(hasil.kekuranganGram)}</strong> lagi untuk mencapai
+            nishab.
           </p>
         )}
-
         <div className="my-2 border-t border-dashed border-slate-200" />
-
+        <Baris label="Nilai emas sekarang" value={formatRupiah(hasil.nilaiEmas)} tebal />
         <Baris label="Modal bersih (beli − jual)" value={formatRupiah(hasil.modalBersih)} />
-        <Baris label="Nilai sekarang" value={formatRupiah(hasil.nilaiEmas)} tebal />
         {Math.abs(hasil.modalBersih) > 0 && (
           <Baris
             label={hasil.keuntungan >= 0 ? "Keuntungan" : "Kerugian"}
             value={`${hasil.keuntungan >= 0 ? "+" : "−"} ${formatRupiah(Math.abs(hasil.keuntungan))}`}
           />
         )}
-
-        <div className="mt-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-          {!hasil.tanggalNishabTercapai ? (
-            <p className="text-slate-500">
-              📅 Haul mulai berjalan saat total emas mencapai {NISHAB_EMAS_GRAM} gram.
-              {hasil.mencapaiNishab && " Lengkapi tanggal transaksi untuk melacak haul."}
-            </p>
-          ) : (
-            <>
-              <p className="text-xs text-slate-400">
-                Nishab tercapai: {formatTanggalID(hasil.tanggalNishabTercapai)}
-              </p>
-              {hasil.haulGenap ? (
-                <p className="mt-1 text-emerald-700">
-                  ✓ Haul genap pada {formatTanggalID(hasil.tanggalJatuhTempoHaul)}.
-                </p>
-              ) : (
-                <div className="mt-1 text-slate-600">
-                  <div className="flex items-center justify-between">
-                    <span>Sisa haul</span>
-                    <span className="font-semibold text-emerald-700">
-                      {hasil.sisaHariHaul} hari
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Genap pada {formatTanggalID(hasil.tanggalJatuhTempoHaul)} (
-                    {hasil.hariBerlalu}/{HAUL_HARI} hari)
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -426,16 +465,18 @@ function Baris({ label, value, tebal }: { label: string; value: string; tebal?: 
   );
 }
 
-/* ---------- Riwayat pembayaran zakat ---------- */
+/* ---------- Riwayat pembayaran ---------- */
 
 function RiwayatZakat({
   riwayat,
-  totalDibayar,
+  totalDibayarGram,
+  totalDibayarRupiah,
   onUbah,
   onHapus,
 }: {
   riwayat: PembayaranZakat[];
-  totalDibayar: number;
+  totalDibayarGram: number;
+  totalDibayarRupiah: number;
   onUbah: (id: string, patch: Partial<PembayaranZakat>) => void;
   onHapus: (id: string) => void;
 }) {
@@ -443,48 +484,86 @@ function RiwayatZakat({
   return (
     <section className="mt-5 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6">
       <h2 className="mb-4 flex items-center justify-between text-sm font-semibold text-slate-700">
-        <span className="flex items-center gap-2">📒 Riwayat Pembayaran Zakat</span>
-        {totalDibayar > 0 && (
+        <span>📒 Riwayat Pembayaran Zakat</span>
+        {(totalDibayarGram > 0 || totalDibayarRupiah > 0) && (
           <span className="text-xs font-normal text-slate-400">
-            Total: <strong className="text-emerald-700">{formatRupiah(totalDibayar)}</strong>
+            Total:{" "}
+            <strong className="text-emerald-700">{formatGram(totalDibayarGram, 3)}</strong> ·{" "}
+            {formatRupiah(totalDibayarRupiah)}
           </span>
         )}
       </h2>
       {urut.length === 0 ? (
         <p className="rounded-xl bg-slate-50 px-4 py-5 text-center text-sm text-slate-400">
-          Belum ada catatan pembayaran. Gunakan tombol &quot;Tandai sudah bayar&quot; saat zakat
-          jatuh tempo.
+          Belum ada catatan pembayaran.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {urut.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 px-3 py-2.5"
-            >
-              <span className="text-lg">💸</span>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold text-slate-700">{formatRupiah(r.jumlah)}</div>
-                <div className="text-xs text-slate-400">{formatTanggalID(r.tanggal)}</div>
-                <input
-                  value={r.catatan ?? ""}
-                  onChange={(e) => onUbah(r.id, { catatan: e.target.value })}
-                  placeholder="+ catatan (mis. via BAZNAS)"
-                  className="mt-1 w-full bg-transparent text-xs text-slate-500 outline-none placeholder:text-slate-300"
-                />
-              </div>
-              <button
-                onClick={() => onHapus(r.id)}
-                aria-label="Hapus catatan"
-                className="rounded-lg px-2 py-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
-              >
-                ✕
-              </button>
-            </li>
+            <RiwayatItem key={r.id} r={r} onUbah={onUbah} onHapus={onHapus} />
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function RiwayatItem({
+  r,
+  onUbah,
+  onHapus,
+}: {
+  r: PembayaranZakat;
+  onUbah: (id: string, patch: Partial<PembayaranZakat>) => void;
+  onHapus: (id: string) => void;
+}) {
+  const jual = r.metode === "jual";
+  return (
+    <li className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">💸</span>
+          <div>
+            <div className="font-semibold text-slate-700">{formatGram(r.gramZakat, 3)}</div>
+            <div className="text-xs text-slate-400">{formatTanggalID(r.tanggal)}</div>
+          </div>
+        </div>
+        <button
+          onClick={() => onHapus(r.id)}
+          aria-label="Hapus catatan"
+          className="rounded-lg px-2 py-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Mini label="Metode bayar">
+          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+            <button
+              onClick={() => onUbah(r.id, { metode: "tunai" })}
+              className={`flex-1 rounded-md py-1 ${!jual ? "bg-emerald-100 font-semibold text-emerald-700" : "text-slate-400"}`}
+            >
+              Tunai
+            </button>
+            <button
+              onClick={() => onUbah(r.id, { metode: "jual" })}
+              className={`flex-1 rounded-md py-1 ${jual ? "bg-emerald-100 font-semibold text-emerald-700" : "text-slate-400"}`}
+            >
+              Jual emas
+            </button>
+          </div>
+        </Mini>
+        <Mini label={jual ? "Hasil penjualan (Rp)" : "Nilai dibayar (Rp)"}>
+          <FieldRupiahKecil value={r.jumlah} onChange={(v) => onUbah(r.id, { jumlah: v })} />
+        </Mini>
+      </div>
+      <input
+        value={r.catatan ?? ""}
+        onChange={(e) => onUbah(r.id, { catatan: e.target.value })}
+        placeholder="+ catatan (mis. via BAZNAS)"
+        className="mt-2 w-full bg-transparent text-xs text-slate-500 outline-none placeholder:text-slate-300"
+      />
+    </li>
   );
 }
 
@@ -506,6 +585,15 @@ function Kartu({
       </h2>
       {children}
     </section>
+  );
+}
+
+function Mini({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-slate-400">{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -538,6 +626,32 @@ function FieldRupiah({
         />
       </div>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+    </div>
+  );
+}
+
+function FieldRupiahKecil({
+  value,
+  onChange,
+  placeholder = "0",
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="flex items-center rounded-lg border border-slate-200 bg-white focus-within:border-emerald-400">
+      <span className="pl-2 text-xs text-slate-400">Rp</span>
+      <input
+        inputMode="numeric"
+        value={value > 0 ? value.toLocaleString("id-ID") : ""}
+        onChange={(e) => {
+          const digit = e.target.value.replace(/[^\d]/g, "");
+          onChange(digit ? parseInt(digit, 10) : 0);
+        }}
+        placeholder={placeholder}
+        className="w-full bg-transparent px-1.5 py-1.5 text-sm outline-none placeholder:text-slate-300"
+      />
     </div>
   );
 }

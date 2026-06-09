@@ -1,17 +1,24 @@
-// Logika inti zakat maal emas: transaksi beli & jual + akumulasi + haul.
+// Logika inti zakat maal emas — model LOT (per pembelian) + FIFO + haul per lot.
 //
-// Model haul: emas dicatat sebagai transaksi (beli menambah, jual mengurangi).
-// Gram diakumulasi kronologis. Saat total mencapai nishab (85 gram), tanggal
-// itu menjadi "anchor" haul. Bila total turun di bawah nishab (mis. karena
-// dijual), haul TERPUTUS dan anchor di-reset — haul baru dimulai saat total
-// kembali mencapai nishab. Setelah haul genap 1 tahun hijriah (≈354 hari) dan
-// total masih ≥ nishab, wajib zakat 2,5% dari nilai emas saat ini.
+// Aturan (sesuai arahan pengguna):
+// - Haul dihitung PER LOT pembelian, berlaku setelah total mencapai nishab (85g).
+//   haulMulai lot = max(tanggal beli lot, tanggal nishab tercapai).
+//   Jadi lot yang dibeli sebelum nishab: haul mulai saat nishab tercapai;
+//   lot setelahnya: haul dari tanggal belinya sendiri.
+// - Penjualan mengurangi lot yang haulnya paling duluan (FIFO: lot terlama dulu).
+// - Zakat dihitung dari BERAT emas (gram), bukan harga beli: zakatGram = 2,5% × gram lot
+//   yang sudah genap haul (selama total masih ≥ nishab).
+// - Konversi gram → Rupiah:
+//   * Bayar TANPA jual emas: gramZakat × harga emas saat haul jatuh tempo (per lot).
+//   * Bayar DENGAN jual emas: hasil penjualan berat zakat (gramZakat × harga jual saat itu),
+//     dicatat manual di riwayat.
 
 export const NISHAB_EMAS_GRAM = 85;
 export const KADAR_ZAKAT = 0.025; // 2,5%
-export const HAUL_HARI = 354; // 1 tahun hijriah ≈ 354,367 hari, dibulatkan
+export const HAUL_HARI = 354; // 1 tahun hijriah ≈ 354,367 hari
 
 export type JenisTransaksi = "beli" | "jual";
+export type MetodeBayar = "tunai" | "jual";
 
 export interface Transaksi {
   id: string;
@@ -20,72 +27,86 @@ export interface Transaksi {
   tanggal: string;
   /** Jumlah emas (gram). */
   gram: number;
-  /** Harga per gram saat transaksi (Rupiah) — untuk arsip & hitung untung/rugi. */
+  /** Harga per gram saat transaksi (Rupiah): harga beli (lot) / harga jual. */
   hargaPerGram: number;
+  /** (Lot beli) Harga emas/gram saat haul lot ini jatuh tempo — untuk konversi tunai. */
+  hargaSaatHaul?: number;
 }
 
 export interface PembayaranZakat {
   id: string;
-  /** Tanggal pembayaran (ISO yyyy-mm-dd). */
   tanggal: string;
-  /** Jumlah zakat yang dibayar (Rupiah). */
+  /** Berat zakat yang dibayar (gram). */
+  gramZakat: number;
+  /** Cara bayar. */
+  metode: MetodeBayar;
+  /** Nilai pembayaran (Rupiah). */
   jumlah: number;
-  /** Catatan opsional (mis. lembaga/keterangan). */
   catatan?: string;
 }
 
 export interface InputHarta {
-  /** Harga emas per gram saat ini (Rupiah) — untuk valuasi & jumlah zakat. */
+  /** Harga emas per gram saat ini (Rupiah) — valuasi & default konversi. */
   hargaEmasSekarang: number;
-  /** Daftar transaksi emas (beli/jual). */
   transaksi: Transaksi[];
-  /** Riwayat pembayaran zakat. */
   riwayat: PembayaranZakat[];
 }
 
 export interface RincianTransaksi extends Transaksi {
-  /** Total gram kumulatif setelah transaksi ini. */
+  /** Total gram kumulatif (kronologis) setelah transaksi ini. */
   kumulatifGram: number;
-  /** Nilai transaksi = gram × hargaPerGram. */
   nilai: number;
-  /** True jika transaksi ini yang memulai haul yang sedang berjalan. */
-  pencetusNishab: boolean;
+}
+
+export interface RincianLot {
+  /** = id transaksi beli sumber lot. */
+  id: string;
+  tanggalBeli: string;
+  gramAwal: number;
+  /** Sisa gram setelah dikurangi penjualan FIFO. */
+  gramSisa: number;
+  hargaBeli: number;
+  hargaSaatHaul?: number;
+  haulMulai: string | null;
+  haulJatuhTempo: string | null;
+  haulGenap: boolean;
+  hariBerlalu: number;
+  sisaHariHaul: number;
+  /** Zakat lot ini (gram) = gramSisa × 2,5% bila haul genap. */
+  zakatGram: number;
+  /** Estimasi nilai zakat lot (Rupiah). */
+  zakatRupiah: number;
 }
 
 export interface HasilZakat {
-  /** Transaksi terurut tanggal (terlama → terbaru) + info kumulatif. */
-  rincian: RincianTransaksi[];
+  rincianTransaksi: RincianTransaksi[];
+  lots: RincianLot[];
   totalGramEmas: number;
-  /** Modal bersih = total beli − total jual (Rupiah). */
-  modalBersih: number;
-  /** Nilai emas saat ini = totalGram × hargaEmasSekarang. */
-  nilaiEmas: number;
-  /** Selisih nilai sekarang − modal bersih (bisa negatif). */
-  keuntungan: number;
   nishabGram: number;
   mencapaiNishab: boolean;
   kekuranganGram: number;
-  /** Tanggal total mencapai nishab untuk haul yang sedang berjalan, atau null. */
-  tanggalNishabTercapai: string | null;
-  tanggalJatuhTempoHaul: string | null;
-  hariBerlalu: number;
-  sisaHariHaul: number;
-  haulGenap: boolean;
-  wajibZakat: boolean;
-  jumlahZakat: number;
-  /** Total zakat yang sudah dibayar (Rupiah). */
-  totalDibayar: number;
+  tanggalNishab: string | null;
+  /** Total zakat yang sudah jatuh tempo (gram). */
+  totalZakatGram: number;
+  /** Estimasi total zakat (Rupiah). */
+  estimasiZakatRupiah: number;
+  nilaiEmas: number;
+  modalBersih: number;
+  keuntungan: number;
+  totalDibayarGram: number;
+  totalDibayarRupiah: number;
+  adaYangJatuhTempo: boolean;
 }
 
 function selisihHari(a: Date, b: Date): number {
-  const msPerHari = 24 * 60 * 60 * 1000;
+  const ms = 24 * 60 * 60 * 1000;
   const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
   const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
-  return Math.floor((ub - ua) / msPerHari);
+  return Math.floor((ub - ua) / ms);
 }
 
-function tambahHari(tanggal: Date, hari: number): Date {
-  const d = new Date(tanggal);
+function tambahHari(t: Date, hari: number): Date {
+  const d = new Date(t);
   d.setDate(d.getDate() + hari);
   return d;
 }
@@ -102,93 +123,140 @@ function tanggalValid(iso: string): boolean {
   return !Number.isNaN(new Date(iso + "T00:00:00").getTime());
 }
 
+interface LotKerja {
+  id: string;
+  tanggalBeli: string;
+  gramAwal: number;
+  gramSisa: number;
+  hargaBeli: number;
+  hargaSaatHaul?: number;
+}
+
 export function hitungZakat(input: InputHarta, sekarang: Date = new Date()): HasilZakat {
   const hargaSekarang = Math.max(0, input.hargaEmasSekarang);
 
-  // Catatan: JANGAN filter gram>0 di sini — semua transaksi harus muncul
-  // sebagai baris agar bisa diisi. Transaksi gram=0 hanya menambah 0 (aman).
-  const valid = input.transaksi
-    .slice()
-    .sort((a, b) => {
-      const ka = tanggalValid(a.tanggal) ? a.tanggal : "9999-99-99";
-      const kb = tanggalValid(b.tanggal) ? b.tanggal : "9999-99-99";
-      return ka.localeCompare(kb);
-    });
-
-  let kumulatif = 0;
-  let anchorTanggal: string | null = null;
-  let anchorTxId: string | null = null;
-
-  const interim = valid.map((t) => {
-    kumulatif += (t.jenis === "jual" ? -1 : 1) * t.gram;
-    if (kumulatif < 0) kumulatif = 0;
-    // Naik mencapai nishab → mulai haul (jika belum ada anchor).
-    if (kumulatif >= NISHAB_EMAS_GRAM && anchorTanggal === null && tanggalValid(t.tanggal)) {
-      anchorTanggal = t.tanggal;
-      anchorTxId = t.id;
-    }
-    // Turun di bawah nishab → haul terputus, reset anchor.
-    if (kumulatif < NISHAB_EMAS_GRAM) {
-      anchorTanggal = null;
-      anchorTxId = null;
-    }
-    return {
-      ...t,
-      kumulatifGram: kumulatif,
-      nilai: t.gram * Math.max(0, t.hargaPerGram),
-    };
+  const urut = input.transaksi.slice().sort((a, b) => {
+    const ka = tanggalValid(a.tanggal) ? a.tanggal : "9999-99-99";
+    const kb = tanggalValid(b.tanggal) ? b.tanggal : "9999-99-99";
+    return ka.localeCompare(kb);
   });
 
-  const rincian: RincianTransaksi[] = interim.map((r) => ({
-    ...r,
-    pencetusNishab: r.id === anchorTxId,
-  }));
+  let kumulatif = 0;
+  let tanggalNishab: string | null = null;
+  const lots: LotKerja[] = [];
+  const rincianTransaksi: RincianTransaksi[] = [];
+
+  for (const t of urut) {
+    const gram = Math.max(0, t.gram);
+    if (t.jenis === "beli") {
+      kumulatif += gram;
+      lots.push({
+        id: t.id,
+        tanggalBeli: t.tanggal,
+        gramAwal: gram,
+        gramSisa: gram,
+        hargaBeli: Math.max(0, t.hargaPerGram),
+        hargaSaatHaul: t.hargaSaatHaul,
+      });
+    } else {
+      // Jual: kurangi lot terlama dulu (FIFO = haul paling duluan).
+      let sisaJual = gram;
+      for (const lot of lots) {
+        if (sisaJual <= 1e-9) break;
+        if (lot.gramSisa <= 1e-9) continue;
+        const ambil = Math.min(lot.gramSisa, sisaJual);
+        lot.gramSisa -= ambil;
+        sisaJual -= ambil;
+      }
+      kumulatif -= gram;
+      if (kumulatif < 0) kumulatif = 0;
+    }
+
+    // Tanggal nishab: titik naik melewati nishab yang bertahan sampai kini.
+    if (kumulatif >= NISHAB_EMAS_GRAM && tanggalNishab === null && tanggalValid(t.tanggal)) {
+      tanggalNishab = t.tanggal;
+    }
+    if (kumulatif < NISHAB_EMAS_GRAM) tanggalNishab = null;
+
+    rincianTransaksi.push({
+      ...t,
+      kumulatifGram: kumulatif,
+      nilai: gram * Math.max(0, t.hargaPerGram),
+    });
+  }
 
   const totalGramEmas = kumulatif;
-  const modalBersih = rincian.reduce(
-    (s, r) => s + (r.jenis === "jual" ? -r.nilai : r.nilai),
-    0,
-  );
-  const nilaiEmas = totalGramEmas * hargaSekarang;
-  const keuntungan = nilaiEmas - modalBersih;
-
   const mencapaiNishab = totalGramEmas >= NISHAB_EMAS_GRAM;
   const kekuranganGram = Math.max(0, NISHAB_EMAS_GRAM - totalGramEmas);
 
-  let tanggalJatuhTempoHaul: string | null = null;
-  let hariBerlalu = 0;
-  let sisaHariHaul = HAUL_HARI;
-  let haulGenap = false;
+  const lotsRinci: RincianLot[] = lots
+    .filter((l) => l.gramSisa > 1e-9)
+    .map((l) => {
+      let haulMulai: string | null = null;
+      let haulJatuhTempo: string | null = null;
+      let haulGenap = false;
+      let hariBerlalu = 0;
+      let sisaHariHaul = HAUL_HARI;
+      let zakatGram = 0;
 
-  if (anchorTanggal) {
-    const mulai = new Date(anchorTanggal + "T00:00:00");
-    hariBerlalu = Math.max(0, selisihHari(mulai, sekarang));
-    sisaHariHaul = Math.max(0, HAUL_HARI - hariBerlalu);
-    tanggalJatuhTempoHaul = toISODate(tambahHari(mulai, HAUL_HARI));
-    haulGenap = hariBerlalu >= HAUL_HARI;
-  }
+      if (tanggalNishab && tanggalValid(l.tanggalBeli)) {
+        haulMulai =
+          l.tanggalBeli.localeCompare(tanggalNishab) > 0 ? l.tanggalBeli : tanggalNishab;
+        const mulai = new Date(haulMulai + "T00:00:00");
+        hariBerlalu = Math.max(0, selisihHari(mulai, sekarang));
+        sisaHariHaul = Math.max(0, HAUL_HARI - hariBerlalu);
+        haulJatuhTempo = toISODate(tambahHari(mulai, HAUL_HARI));
+        haulGenap = mencapaiNishab && hariBerlalu >= HAUL_HARI;
+        zakatGram = haulGenap ? l.gramSisa * KADAR_ZAKAT : 0;
+      }
 
-  const wajibZakat = mencapaiNishab && haulGenap;
-  const jumlahZakat = nilaiEmas * KADAR_ZAKAT;
-  const totalDibayar = input.riwayat.reduce((s, r) => s + Math.max(0, r.jumlah), 0);
+      const hargaKonversi =
+        l.hargaSaatHaul && l.hargaSaatHaul > 0 ? l.hargaSaatHaul : hargaSekarang;
+
+      return {
+        id: l.id,
+        tanggalBeli: l.tanggalBeli,
+        gramAwal: l.gramAwal,
+        gramSisa: l.gramSisa,
+        hargaBeli: l.hargaBeli,
+        hargaSaatHaul: l.hargaSaatHaul,
+        haulMulai,
+        haulJatuhTempo,
+        haulGenap,
+        hariBerlalu,
+        sisaHariHaul,
+        zakatGram,
+        zakatRupiah: zakatGram * hargaKonversi,
+      };
+    });
+
+  const totalZakatGram = lotsRinci.reduce((s, l) => s + l.zakatGram, 0);
+  const estimasiZakatRupiah = lotsRinci.reduce((s, l) => s + l.zakatRupiah, 0);
+  const nilaiEmas = totalGramEmas * hargaSekarang;
+  const modalBersih = rincianTransaksi.reduce(
+    (s, r) => s + (r.jenis === "jual" ? -r.nilai : r.nilai),
+    0,
+  );
+  const keuntungan = nilaiEmas - modalBersih;
+  const totalDibayarGram = input.riwayat.reduce((s, r) => s + Math.max(0, r.gramZakat || 0), 0);
+  const totalDibayarRupiah = input.riwayat.reduce((s, r) => s + Math.max(0, r.jumlah || 0), 0);
 
   return {
-    rincian,
+    rincianTransaksi,
+    lots: lotsRinci,
     totalGramEmas,
-    modalBersih,
-    nilaiEmas,
-    keuntungan,
     nishabGram: NISHAB_EMAS_GRAM,
     mencapaiNishab,
     kekuranganGram,
-    tanggalNishabTercapai: anchorTanggal,
-    tanggalJatuhTempoHaul,
-    hariBerlalu,
-    sisaHariHaul,
-    haulGenap,
-    wajibZakat,
-    jumlahZakat,
-    totalDibayar,
+    tanggalNishab,
+    totalZakatGram,
+    estimasiZakatRupiah,
+    nilaiEmas,
+    modalBersih,
+    keuntungan,
+    totalDibayarGram,
+    totalDibayarRupiah,
+    adaYangJatuhTempo: totalZakatGram > 1e-9,
   };
 }
 
@@ -200,8 +268,8 @@ export function formatRupiah(n: number): string {
   }).format(Math.round(n));
 }
 
-export function formatGram(n: number): string {
-  return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(n)} gram`;
+export function formatGram(n: number, desimal = 2): string {
+  return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: desimal }).format(n)} gram`;
 }
 
 export function formatTanggalID(iso: string | null): string {
