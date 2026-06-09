@@ -105,8 +105,9 @@ function tanggalValid(iso: string): boolean {
 export function hitungZakat(input: InputHarta, sekarang: Date = new Date()): HasilZakat {
   const hargaSekarang = Math.max(0, input.hargaEmasSekarang);
 
+  // Catatan: JANGAN filter gram>0 di sini — semua transaksi harus muncul
+  // sebagai baris agar bisa diisi. Transaksi gram=0 hanya menambah 0 (aman).
   const valid = input.transaksi
-    .filter((t) => t.gram > 0)
     .slice()
     .sort((a, b) => {
       const ka = tanggalValid(a.tanggal) ? a.tanggal : "9999-99-99";
